@@ -67,7 +67,19 @@ pub struct SystemInfo {
     pub cpu: CpuGlobalInfo,
 }
 
-
+fn parse_range_string(range_string: &str) -> Vec<usize> {
+    let mut result = Vec::new();
+    for range in range_string.split(',') {
+        if let [start, end] = range.split('-').map(|s| s.parse::<usize>().unwrap()).collect::<Vec<usize>>()[..] {
+            for i in start..=end {
+                result.push(i);
+            }
+        } else {
+            result.push(range.parse::<usize>().unwrap());
+        }
+    }
+    result
+}
 
 fn get_cpu_status() -> HashMap<usize, String> {
     let possible_file = File::open("/sys/devices/system/cpu/possible")
@@ -81,9 +93,7 @@ fn get_cpu_status() -> HashMap<usize, String> {
         .expect("Failed to open file /sys/devices/system/cpu/online");
     let online_reader = BufReader::new(online_file);
     let online_contents = online_reader.lines().next().unwrap().unwrap();
-    let online_cpus: Vec<usize> = online_contents.split(",")
-        .map(|s| s.split("-").map(|t| t.parse::<usize>().unwrap()).collect::<Vec<usize>>())
-        .flatten().collect();
+    let online_cpus: Vec<usize> = parse_range_string(&online_contents);
 
     let mut cpu_status = HashMap::new();
     for i in start..=end {
