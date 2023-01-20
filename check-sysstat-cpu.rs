@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use clap::{Command, Arg, ArgAction};
 use std::process::exit;
-use num_cpus;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CpuSoftIrqs {
@@ -38,6 +37,67 @@ pub struct CpuTime {
     pub guest_nice: Option<i64>
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CPUInfoFile {
+    processor: usize,
+    vendor_id: String,
+    cpu_family: usize,
+    model: usize,
+    model_name: String,
+    stepping: usize,
+    microcode: Option<String>, // 2.6.22 and newer
+    cpu_mhz: Option<f32>, // 2.2 and newer
+    cache_size: Option<String>, // 2.2 and newer
+    physical_id: Option<usize>, // 2.6.0 and newer
+    siblings: Option<usize>, // 2.6.0 and newer
+    core_id: Option<usize>, // 2.6.0 and newer
+    cpu_cores: Option<usize>, // 2.6.0 and newer
+    apicid: Option<usize>, // 2.6.0 and newer
+    initial_apicid: Option<usize>, // 2.6.0 and newer
+    fpu: bool,
+    fpu_exception: bool,
+    cpuid_level: usize,
+    wp: bool,
+    flags: String,
+    bugs: Option<String>,
+    bogomips: f32,
+    clflush_size: Option<usize>, // 2.6.0 and newer
+    cache_alignment: Option<usize>, // 2.6.0 and newer
+    address_sizes: Option<String>, // 2.6.0 and newer
+}
+impl Default for CPUInfoFile {
+    fn default() -> Self {
+        CPUInfoFile {
+            processor: 0,
+            vendor_id: String::new(),
+            cpu_family: 0,
+            model: 0,
+            model_name: String::new(),
+            stepping: 0,
+            microcode: None,
+            cpu_mhz: None,
+            cache_size: None,
+            physical_id: None,
+            siblings: None,
+            core_id: None,
+            cpu_cores: None,
+            apicid: None,
+            initial_apicid: None,
+            fpu: false,
+            fpu_exception: false,
+            cpuid_level: 0,
+            wp: false,
+            flags: String::new(),
+            bugs: None,
+            bogomips: 0.0,
+            clflush_size: None,
+            cache_alignment: None,
+            address_sizes: None,
+        }
+    }
+}
+
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CpuStat {
     pub name: String,
@@ -46,20 +106,32 @@ pub struct CpuStat {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct SocketInfo {
+    pub id: usize,
+    pub vendor_id: String,
+    pub cpu_family: usize,
+    pub model: usize,
+    pub model_name: String,
+    pub cpu_mhz: Option<f32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CpuInfo {
-    pub id: i64,
-    //pub physical_package_id: i64,
-    pub online: bool,
+    pub id: usize,
+    pub physical_id: Option<usize>,
+    pub online: String,
+    pub all_infos: CPUInfoFile,
     //pub hotplug_state: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CpuGlobalInfo {
-    //pub socket_nbr_detected: i64,
+    pub socket_nbr_detected: i64,
     pub cpu_nbr_detected: usize,
     pub cpu_nbr_online: usize,
     pub cpu_nbr_offline: usize,
-    //pub cpu: Vec<CpuInfo>,
+    pub socket: HashMap<usize, SocketInfo>,
+    pub cpu: HashMap<usize, CpuInfo>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -106,13 +178,54 @@ fn get_cpu_status() -> HashMap<usize, String> {
     cpu_status
 }
 
+fn get_cpu_infos(cpu_status: &HashMap<usize, String>) -> (HashMap<usize, CpuInfo>, Vec<usize>, HashMap<usize, SocketInfo>) {
+    let cpuinfofile = parse_cpuinfo();
+    let mut cpuinfos = HashMap::new();
+    let mut socketinfos = HashMap::new();
+    let mut list_socket: Vec<usize> = Vec::new();
+    for (cpuid, cpustatus) in cpu_status {
+        if cpustatus == "online" {
+            if !list_socket.contains(&cpuinfofile[cpuid].physical_id.unwrap()) { 
+                list_socket.push(cpuinfofile[cpuid].physical_id.unwrap()); 
+                socketinfos.insert(*cpuid, SocketInfo{
+                    id: cpuinfofile[cpuid].physical_id.unwrap(),
+                    vendor_id: cpuinfofile[cpuid].vendor_id.to_string(),
+                    cpu_family: cpuinfofile[cpuid].cpu_family,
+                    model: cpuinfofile[cpuid].model,
+                    model_name: cpuinfofile[cpuid].model_name.to_string(),
+                    cpu_mhz: cpuinfofile[cpuid].cpu_mhz,
+                });
+            }
+            cpuinfos.insert(*cpuid, CpuInfo{
+                id: *cpuid,
+                physical_id: Some(cpuinfofile[cpuid].physical_id.unwrap()),
+                online: (&cpustatus).to_string(),
+                all_infos: cpuinfofile[cpuid].clone(),
+            });
+        }else{
+            cpuinfos.insert(*cpuid, CpuInfo{
+                id: *cpuid,
+                physical_id: None,
+                online: (&cpustatus).to_string(),
+                all_infos: CPUInfoFile::default(),
+            });
+        }
+    }
+    (cpuinfos, list_socket, socketinfos)
+}
+
 fn get_cpu_global_infos() -> CpuGlobalInfo {
     let cpu_status = get_cpu_status();
+    let (cpu, list_socket, socket) = get_cpu_infos(&cpu_status);
 
     CpuGlobalInfo{
+        socket_nbr_detected: list_socket.len() as i64,
         cpu_nbr_detected: cpu_status.keys().len() as usize,
         cpu_nbr_online: cpu_status.values().filter(|&x| x == "online").count() as usize,
         cpu_nbr_offline: cpu_status.values().filter(|&x| x == "offline").count() as usize,
+        socket,
+        cpu,
+        
     }
 }
 
@@ -370,208 +483,344 @@ fn get_softirqs() -> HashMap<String, HashMap<String, u32>> {
     softirqs
 }
 
+fn parse_cpuinfo() -> HashMap<usize, CPUInfoFile> {
+    let file = File::open("/proc/cpuinfo").unwrap();
+    let reader = BufReader::new(file);
+    let mut cpus = HashMap::new();;
+    let mut cpu = CPUInfoFile::default();
 
-fn main() {
-    println!("{}", serde_json::to_string_pretty(&get_system_infos()).unwrap())
+    let mut lines = reader.lines();
+
+    for line in lines {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        let parts: Vec<&str> = line.split(':').map(|s| s.trim()).collect();
+        if parts.len() != 2 {
+            cpus.insert(cpu.processor, cpu);
+            cpu = CPUInfoFile::default();
+            continue;
+        }
+        let key = parts[0];
+        let value = parts[1];
+
+        match key {
+            "processor" => {
+                cpu.processor = value.parse().unwrap_or(0);
+            }
+            "vendor_id" => {
+                cpu.vendor_id = value.to_string();
+            }
+            "cpu family" => {
+                cpu.cpu_family = value.parse().unwrap_or(0);
+            }
+            "model" => {
+                cpu.model = value.parse().unwrap_or(0);
+            }
+            "model name" => {
+                cpu.model_name = value.to_string();
+            }
+            "stepping" => {
+                cpu.stepping = value.parse().unwrap_or(0);
+            }
+            "microcode" => {
+                cpu.microcode = Some(value.to_string());
+            }
+            "cpu MHz" => {
+                let parsed = value.parse::<f32>();
+                if parsed.is_ok() {
+                    cpu.cpu_mhz = Some(parsed.unwrap())
+                }
+            }
+            "cache size" => {
+                cpu.cache_size = Some(value.to_string());
+            }
+            "physical id" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.physical_id = Some(parsed.unwrap());
+                }
+            }
+            "siblings" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.siblings = Some(parsed.unwrap());
+                }
+            }
+            "core id" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.core_id = Some(parsed.unwrap());
+                }
+            }
+            "cpu cores" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.cpu_cores = Some(parsed.unwrap());
+                }
+            }
+            "apicid" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.apicid = Some(parsed.unwrap());
+                }
+            }
+            "initial apicid" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.initial_apicid = Some(parsed.unwrap());
+                }
+            }
+            "fpu" => {
+                cpu.fpu = value == "yes";
+            }
+            "fpu_exception" => {
+                cpu.fpu_exception = value == "yes";
+            }
+            "cpuid level" => {
+                cpu.cpuid_level = value.parse().unwrap_or(0);
+            }
+            "wp" => {
+                cpu.wp = value == "yes";
+            }
+            "flags" => {
+                cpu.flags = value.to_string();
+            }
+            "bugs" => {
+                cpu.bugs = Some(value.to_string());
+            }
+            "bogomips" => {
+                let parsed = value.parse::<f32>();
+                if parsed.is_ok() {
+                    cpu.bogomips = parsed.unwrap();
+                }
+            }
+            "clflush size" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.clflush_size = Some(parsed.unwrap());
+                }
+            }
+            "cache_alignment" => {
+                let parsed = value.parse::<usize>();
+                if parsed.is_ok() {
+                    cpu.cache_alignment = Some(parsed.unwrap());
+                }
+            }
+            "address sizes" => {
+                cpu.address_sizes = Some(value.to_string());
+            }
+            _ => {}
+        }
+    }
+    cpus
 }
 
-// fn main() {
 
-//     // 
-//     // -- RETURN CODE --
-//     // Example : exit(RC_UNKNOWN);
-//     let RC_OK = 0;
-//     let RC_WARNING = 1;
-//     let RC_CRITICAL = 2;
-//     let RC_UNKNOWN = 3;
 
-//     // 
-//     // -- ARGS --
-//     //
-//     let args = Command::new("check-sysstat-cpu")
-//                 .author("Quentin BILLECOQ, quentin@billecoq.fr")
-//                 .version("1.0.O")
-//                 .about("Get CPU Stats")
-//                 .arg(Arg::new("all")
-//                     .short('A')
-//                     .long("all")
-//                     .action(ArgAction::SetTrue)
-//                     .help("Get all CPU infos and stats")
-//                     .required(false)
-//                 )
-//                 .arg(Arg::new("infos")
-//                     .short('i')
-//                     .long("infos")
-//                     .action(ArgAction::SetTrue)
-//                     .help("Get CPU infos")
-//                     .required(false)
-//                 )
-//                 .arg( Arg::new("times")
-//                     .short('T')
-//                     .long("times")
-//                     .action(ArgAction::SetTrue)
-//                     .help("Get CPU times")
-//                     .required(false)
-//                 )
-//                 .arg(Arg::new("interrupts")
-//                     .short('I')
-//                     .long("interrupts")
-//                     .action(ArgAction::SetTrue)
-//                     .help("Get CPU interrupts")
-//                     .required(false)
-//                 )
-//                 .arg(Arg::new("softirqs")
-//                     .short('S')
-//                     .long("softirqs")
-//                     .action(ArgAction::SetTrue)
-//                     .help("Get CPU software interrupts")
-//                     .required(false)
-//                 )
-//                 .arg(Arg::new("statsfile")
-//                     .short('s')
-//                     .long("statsfile")
-//                     .value_name("PATH")
-//                     .default_value("/tmp/check-sysstat-cpu.stats")
-//                     .action(ArgAction::Set)
-//                     .help("File where is stocked last stats for next the run")
-//                     .required(false)
-//                 )
-//                 .get_matches();
+
+fn main() {
+
+    // 
+    // -- RETURN CODE --
+    // Example : exit(RC_UNKNOWN);
+    let RC_OK = 0;
+    let RC_WARNING = 1;
+    let RC_CRITICAL = 2;
+    let RC_UNKNOWN = 3;
+
+    // 
+    // -- ARGS --
+    //
+    let args = Command::new("check-sysstat-cpu")
+                .author("Quentin BILLECOQ, quentin@billecoq.fr")
+                .version("1.0.O")
+                .about("Get CPU Stats")
+                .arg(Arg::new("all")
+                    .short('A')
+                    .long("all")
+                    .action(ArgAction::SetTrue)
+                    .help("Get all CPU infos and stats")
+                    .required(false)
+                )
+                .arg(Arg::new("infos")
+                    .short('i')
+                    .long("infos")
+                    .action(ArgAction::SetTrue)
+                    .help("Get CPU infos")
+                    .required(false)
+                )
+                .arg( Arg::new("times")
+                    .short('T')
+                    .long("times")
+                    .action(ArgAction::SetTrue)
+                    .help("Get CPU times")
+                    .required(false)
+                )
+                .arg(Arg::new("interrupts")
+                    .short('I')
+                    .long("interrupts")
+                    .action(ArgAction::SetTrue)
+                    .help("Get CPU interrupts")
+                    .required(false)
+                )
+                .arg(Arg::new("softirqs")
+                    .short('S')
+                    .long("softirqs")
+                    .action(ArgAction::SetTrue)
+                    .help("Get CPU software interrupts")
+                    .required(false)
+                )
+                .arg(Arg::new("statsfile")
+                    .short('s')
+                    .long("statsfile")
+                    .value_name("PATH")
+                    .default_value("/tmp/check-sysstat-cpu.stats")
+                    .action(ArgAction::Set)
+                    .help("File where is stocked last stats for next the run")
+                    .required(false)
+                )
+                .get_matches();
     
-//     // 
-//     // -- Default value --
-//     //
-//     let args_cpu_all: bool = *args.get_one::<bool>("all").unwrap_or(&false);
-//     let args_cpu_infos: bool = *args.get_one::<bool>("infos").unwrap_or(&false);
-//     let args_cpu_times: bool = *args.get_one::<bool>("times").unwrap_or(&false);
-//     let args_cpu_interrupts: bool = *args.get_one::<bool>("interrupts").unwrap_or(&false);
-//     let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
-//     let file_stats: &str = args.get_one::<String>("statsfile").unwrap();
+    // 
+    // -- Default value --
+    //
+    let args_cpu_all: bool = *args.get_one::<bool>("all").unwrap_or(&false);
+    let args_cpu_infos: bool = *args.get_one::<bool>("infos").unwrap_or(&false);
+    let args_cpu_times: bool = *args.get_one::<bool>("times").unwrap_or(&false);
+    let args_cpu_interrupts: bool = *args.get_one::<bool>("interrupts").unwrap_or(&false);
+    let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
+    let file_stats: &str = args.get_one::<String>("statsfile").unwrap();
 
-//     let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-
-
-//     // 
-//     // -- Main --
-//     //
-
-//     let mut first_start = true;
-//     let getcpunow = get_cpu_stats();
-//     let mut cpulastdata: Vec<CpuStat> = Vec::new();
-//     let mut lastchecktime: u64 = 0;
-
-//     if !fs::metadata(file_stats).is_ok() {
-//         let file = OpenOptions::new()
-//             .write(true)
-//             .create_new(true)
-//             .open(file_stats)
-//             ;
-//         file.expect("REASON").write_all("".as_bytes());
-//     }else {
-//         first_start = false;
-//         let contents_stats = fs::read_to_string(file_stats);
-//         let binding_stats = contents_stats.expect("REASON");
-//         let lines_stats = binding_stats.lines();
-//         for line in lines_stats {
-//             if line.starts_with("cputime") {
-//                 let data: Vec<&str> = line.split_whitespace().collect();
-//                 let date: u64 = match data[1].to_string().parse() {
-//                     Ok(n) => n,
-//                     Err(_) => panic!("Error parsing date string to u64"),
-//                 };
-//                 lastchecktime = timestamp-date;
-//                 println!("Temps depuis dernier check : {}s", lastchecktime)
-//             }
-//             if line.starts_with("cpujson") {
-//                 let data: Vec<&str> = line.split_whitespace().collect();
-//                 cpulastdata = serde_json::from_str(data[1]).unwrap();
-//             }
-//         }
-//     }
+    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
 
 
-//     save_stats(file_stats, timestamp, &getcpunow);
+    // 
+    // -- Main --
+    //
 
-//     let (mut diff_vec, added_removed) = compare_cpu_infos(getcpunow, cpulastdata);
-//     diff_vec.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut first_start = true;
+    let getcpunow = get_cpu_stats();
+    let mut cpulastdata: Vec<CpuStat> = Vec::new();
+    let mut lastchecktime: u64 = 0;
 
-//     // ALERTS 
-//     if lastchecktime < 2 {
-//         println!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime);
-//     }
-//     for (cpu, act) in added_removed {
-//         println!("{} : {}", cpu.to_string(), act.to_string());
-//     }
+    if !fs::metadata(file_stats).is_ok() {
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(file_stats)
+            ;
+        file.expect("REASON").write_all("".as_bytes());
+    }else {
+        first_start = false;
+        let contents_stats = fs::read_to_string(file_stats);
+        let binding_stats = contents_stats.expect("REASON");
+        let lines_stats = binding_stats.lines();
+        for line in lines_stats {
+            if line.starts_with("cputime") {
+                let data: Vec<&str> = line.split_whitespace().collect();
+                let date: u64 = match data[1].to_string().parse() {
+                    Ok(n) => n,
+                    Err(_) => panic!("Error parsing date string to u64"),
+                };
+                lastchecktime = timestamp-date;
+                println!("Temps depuis dernier check : {}s", lastchecktime)
+            }
+            if line.starts_with("cpujson") {
+                let data: Vec<&str> = line.split_whitespace().collect();
+                cpulastdata = serde_json::from_str(data[1]).unwrap();
+            }
+        }
+    }
+
+
+    save_stats(file_stats, timestamp, &getcpunow);
+
+    let (mut diff_vec, added_removed) = compare_cpu_infos(getcpunow, cpulastdata);
+    diff_vec.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // ALERTS 
+    if lastchecktime < 2 {
+        println!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime);
+    }
+    for (cpu, act) in added_removed {
+        println!("{} : {}", cpu.to_string(), act.to_string());
+    }
     
-//     // CPU INFOS
-//     if args_cpu_all | args_cpu_infos {
-//         println!();
-//         println!("{0: <10} | {1: <10}",
-//             "CPU", num_cpus::get(),
-//         );
-//         println!("{0: <10} | {1: <10}",
-//             "Core", num_cpus::get()*num_cpus::get_physical(),
-//         );
-//     }
+    // CPU INFOS
+    if args_cpu_all | args_cpu_infos {
+        let system_infos = get_system_infos();
+        println!();
+        println!("{0: <10} | {1: <10}",
+            "Socket(s)", system_infos.cpu.socket_nbr_detected,
+        );
+        println!("{0: <10} | {1: <10}",
+            "CPU(s)", system_infos.cpu.cpu_nbr_online,
+        );
+        println!("{0: <10} | {1: <10}",
+            "Core", 4,
+        );
+    }
 
-//     // CPU TIMES
-//     if args_cpu_all | args_cpu_times {
-//         println!();
-//         println!(
-//             "{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}",
-//             "CPU", "%usr", "%nice", "%sys", "%iowait", "%irq", "%soft", "%steal", "%guest", "%gnice", "%idle"
-//         );
-//         println!("-------------------------------------------------------------------------------------------------------------------------------------");
-//         if !first_start {
-//             for stats in &diff_vec {
-//                     let name = if stats.name == "cpu" { "all" } else { &stats.name };
+    // CPU TIMES
+    if args_cpu_all | args_cpu_times {
+        println!();
+        println!(
+            "{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}",
+            "CPU", "%usr", "%nice", "%sys", "%iowait", "%irq", "%soft", "%steal", "%guest", "%gnice", "%idle"
+        );
+        println!("-------------------------------------------------------------------------------------------------------------------------------------");
+        if !first_start {
+            for stats in &diff_vec {
+                    let name = if stats.name == "cpu" { "all" } else { &stats.name };
 
-//                     let percentages = calculate_percentages(&stats.stat);
-//                     //println!("{:?}", percentages);
+                    let percentages = calculate_percentages(&stats.stat);
+                    //println!("{:?}", percentages);
 
-//                     println!("{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10?} | {6: <10?} | {7: <10?} | {8: <10?} | {9: <10?} | {10: <10?}", 
-//                         name,
-//                         round(percentages["user"], 2),
-//                         round(percentages["nice"], 2),
-//                         round(percentages["system"], 2),
-//                         round(percentages["iowait"], 2),
-//                         round(percentages["irq"], 2),
-//                         round(percentages["softirq"], 2),
-//                         round(percentages["steal"], 2),
-//                         round(percentages["guest"], 2),
-//                         round(percentages["guest_nice"], 2),
-//                         round(percentages["idle"], 2),
-//                 );
-//             }
-//         }else {
-//             // If first run, stats initializing
-//             println!("First run : initializing...");
-//         }
-//     }
+                    println!("{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10?} | {6: <10?} | {7: <10?} | {8: <10?} | {9: <10?} | {10: <10?}", 
+                        name,
+                        round(percentages["user"], 2),
+                        round(percentages["nice"], 2),
+                        round(percentages["system"], 2),
+                        round(percentages["iowait"], 2),
+                        round(percentages["irq"], 2),
+                        round(percentages["softirq"], 2),
+                        round(percentages["steal"], 2),
+                        round(percentages["guest"], 2),
+                        round(percentages["guest_nice"], 2),
+                        round(percentages["idle"], 2),
+                );
+            }
+        }else {
+            // If first run, stats initializing
+            println!("First run : initializing...");
+        }
+    }
     
-//     // CPU SOFTIRQS
-//     if args_cpu_all | args_cpu_softirqs {
-//         println!();
-//         println!(
-//             "{0: <7} | {1: <10} | {2: <10}",
-//             "CPU", "HI/s", "TIMER/s",
-//         );
-//         println!("------------------------------------------------------");
-//         if !first_start {
-//             for stats in &diff_vec {
-//                 let name = if stats.name == "cpu" { "all" } else { &stats.name };
-//                 println!("{0: <7} | {1: <10} | {2: <10}", 
-//                     name,
-//                     stats.softirqs.hi,
-//                     stats.softirqs.timer,
-//                 );
-//             }
-//         }else {
-//             // If first run, stats initializing
-//             println!("First run : initializing...");
-//         }
-//     }
+    // CPU SOFTIRQS
+    if args_cpu_all | args_cpu_softirqs {
+        println!();
+        println!(
+            "{0: <7} | {1: <10} | {2: <10}",
+            "CPU", "HI/s", "TIMER/s",
+        );
+        println!("------------------------------------------------------");
+        if !first_start {
+            for stats in &diff_vec {
+                let name = if stats.name == "cpu" { "all" } else { &stats.name };
+                println!("{0: <7} | {1: <10} | {2: <10}", 
+                    name,
+                    stats.softirqs.hi,
+                    stats.softirqs.timer,
+                );
+            }
+        }else {
+            // If first run, stats initializing
+            println!("First run : initializing...");
+        }
+    }
 
-//     println!("{:?}", get_cpu_status())
+    println!("{:?}", get_cpu_status())
 
-// }
+}
