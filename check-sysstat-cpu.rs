@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::io::Read;
 use std::time::SystemTime;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
@@ -59,7 +60,7 @@ pub struct CPUInfoFile {
     cpuid_level: usize,
     wp: bool,
     flags: String,
-    bugs: Option<String>,
+    bugs: Option<Vec<String>>,
     bogomips: f32,
     clflush_size: Option<usize>, // 2.6.0 and newer
     cache_alignment: Option<usize>, // 2.6.0 and newer
@@ -130,6 +131,8 @@ pub struct CpuGlobalInfo {
     pub cpu_nbr_detected: usize,
     pub cpu_nbr_online: usize,
     pub cpu_nbr_offline: usize,
+    pub cpu_nbr_physical: usize,
+    pub cpu_nbr_logical: usize,
     pub socket: HashMap<usize, SocketInfo>,
     pub cpu: HashMap<usize, CpuInfo>,
 }
@@ -217,12 +220,25 @@ fn get_cpu_infos(cpu_status: &HashMap<usize, String>) -> (HashMap<usize, CpuInfo
 fn get_cpu_global_infos() -> CpuGlobalInfo {
     let cpu_status = get_cpu_status();
     let (cpu, list_socket, socket) = get_cpu_infos(&cpu_status);
+    let mut cpu_nbr_physical: usize = 0;
+    let mut cpu_nbr_logical: usize = 0;
+    let socket_nbr_detected: i64 = list_socket.len() as i64;
+
+    for (_key, val) in &cpu {
+        if val.online == "online" {
+            cpu_nbr_physical = (val.all_infos.cpu_cores.unwrap() as i64 * socket_nbr_detected) as usize;
+            cpu_nbr_logical = (val.all_infos.siblings.unwrap() as i64 * socket_nbr_detected) as usize - cpu_nbr_physical;
+            break;
+        }
+    }
 
     CpuGlobalInfo{
-        socket_nbr_detected: list_socket.len() as i64,
+        socket_nbr_detected,
         cpu_nbr_detected: cpu_status.keys().len() as usize,
         cpu_nbr_online: cpu_status.values().filter(|&x| x == "online").count() as usize,
         cpu_nbr_offline: cpu_status.values().filter(|&x| x == "offline").count() as usize,
+        cpu_nbr_physical,
+        cpu_nbr_logical,
         socket,
         cpu,
         
@@ -374,13 +390,15 @@ pub fn compare_cpu_infos(v1: Vec<CpuStat>, v2: Vec<CpuStat>) -> (Vec<CpuStat>, H
     (diff_vec, added_removed)
 }
 
-pub fn save_stats(file_stats: &str, timestamp: u64, getcpunow: &Vec<CpuStat>) {
+pub fn save_stats(file_stats: &str, timestamp: i64, getcpunow: &Vec<CpuStat>, ctxt: usize, processes: usize) {
     let mut file = File::create(file_stats).unwrap();
-    writeln!(file, "cputime {}", timestamp);
-    writeln!(file, "cpujson {}", serde_json::to_string(&getcpunow).unwrap()).unwrap();
+    writeln!(file, "cputime {}", timestamp).expect("Failed to write save file");
+    writeln!(file, "cpujson {}", serde_json::to_string(&getcpunow).unwrap()).expect("Failed to write save file");
+    writeln!(file, "ctxt {}", ctxt).expect("Failed to write save file");
+    writeln!(file, "processes {}", processes).expect("Failed to write save file");
 }
 
-fn get_cpu_stats() -> Vec<CpuStat>{
+fn get_cpu_stats() -> (Vec<CpuStat>, usize, usize, usize ,usize){
     let contents_cpu_stats = fs::read_to_string("/proc/stat");
     let binding = contents_cpu_stats.expect("Failed to open /proc/stat");
     let lines_cpu_stats = binding.lines();
@@ -388,6 +406,11 @@ fn get_cpu_stats() -> Vec<CpuStat>{
     let mut cpu_infos: Vec<CpuStat> = Vec::new();
 
     let all_softirqs = get_softirqs();
+
+    let mut ctxt: usize = 0;
+    let mut processes: usize = 0;
+    let mut procs_running: usize = 0;
+    let mut procs_blocked: usize = 0;
 
     for line in lines_cpu_stats {
         if line.starts_with("cpu") {
@@ -439,8 +462,24 @@ fn get_cpu_stats() -> Vec<CpuStat>{
                 softirqs
             })
         }
+        if line.starts_with("ctxt") {
+            let data: Vec<&str> = line.split_whitespace().collect();
+            ctxt = data[1].parse().unwrap();
+        }
+        if line.starts_with("processes") {
+            let data: Vec<&str> = line.split_whitespace().collect();
+            processes = data[1].parse().unwrap();
+        }
+        if line.starts_with("procs_running") {
+            let data: Vec<&str> = line.split_whitespace().collect();
+            procs_running = data[1].parse().unwrap();
+        }
+        if line.starts_with("procs_blocked") {
+            let data: Vec<&str> = line.split_whitespace().collect();
+            procs_blocked = data[1].parse().unwrap();
+        }
     }
-    cpu_infos
+    (cpu_infos, ctxt, processes, procs_running, procs_blocked)
 }
 
 fn get_softirqs() -> HashMap<String, HashMap<String, u32>> {
@@ -486,10 +525,10 @@ fn get_softirqs() -> HashMap<String, HashMap<String, u32>> {
 fn parse_cpuinfo() -> HashMap<usize, CPUInfoFile> {
     let file = File::open("/proc/cpuinfo").unwrap();
     let reader = BufReader::new(file);
-    let mut cpus = HashMap::new();;
+    let mut cpus = HashMap::new();
     let mut cpu = CPUInfoFile::default();
 
-    let mut lines = reader.lines();
+    let lines = reader.lines();
 
     for line in lines {
         let line = match line {
@@ -588,7 +627,8 @@ fn parse_cpuinfo() -> HashMap<usize, CPUInfoFile> {
                 cpu.flags = value.to_string();
             }
             "bugs" => {
-                cpu.bugs = Some(value.to_string());
+                let cpubug: String = value.to_string();
+                cpu.bugs = Some(cpubug.split_whitespace().map(|s| s.to_owned()).collect());
             }
             "bogomips" => {
                 let parsed = value.parse::<f32>();
@@ -617,6 +657,19 @@ fn parse_cpuinfo() -> HashMap<usize, CPUInfoFile> {
     cpus
 }
 
+fn get_cpu_temperature() -> String {
+    match File::open("/sys/class/thermal/thermal_zone0/temp") {
+        Ok(mut file) => {
+            let mut temperature = String::new();
+            file.read_to_string(&mut temperature).unwrap();
+            let temperature = temperature.trim().parse::<f64>().unwrap();
+            let temperature = temperature / 1000.0;
+            format!("{:.2} °C", temperature)
+        },
+        Err(_) => String::from("N/A"),
+    }
+}
+
 
 
 
@@ -624,11 +677,11 @@ fn main() {
 
     // 
     // -- RETURN CODE --
-    // Example : exit(RC_UNKNOWN);
-    let RC_OK = 0;
-    let RC_WARNING = 1;
-    let RC_CRITICAL = 2;
-    let RC_UNKNOWN = 3;
+    // Example : exit(_RC_UNKNOWN);
+    let _rc_ok = 0;
+    let _rc_warning = 1;
+    let _rc_critical = 2;
+    let _rc_unknown = 3;
 
     // 
     // -- ARGS --
@@ -693,7 +746,7 @@ fn main() {
     let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
     let file_stats: &str = args.get_one::<String>("statsfile").unwrap();
 
-    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let timestamp: i64 = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
 
 
     // 
@@ -701,9 +754,11 @@ fn main() {
     //
 
     let mut first_start = true;
-    let getcpunow = get_cpu_stats();
+    let (getcpunow, ctxt, processes, procs_running, procs_blocked) = get_cpu_stats();
     let mut cpulastdata: Vec<CpuStat> = Vec::new();
-    let mut lastchecktime: u64 = 0;
+    let mut lastchecktime: i64 = 0;
+    let mut rate_ctxt: usize = 0;
+    let mut rate_processes: usize = 0;
 
     if !fs::metadata(file_stats).is_ok() {
         let file = OpenOptions::new()
@@ -711,7 +766,7 @@ fn main() {
             .create_new(true)
             .open(file_stats)
             ;
-        file.expect("REASON").write_all("".as_bytes());
+        file.expect("REASON").write_all("".as_bytes()).expect("Error writing to file");
     }else {
         first_start = false;
         let contents_stats = fs::read_to_string(file_stats);
@@ -720,25 +775,60 @@ fn main() {
         for line in lines_stats {
             if line.starts_with("cputime") {
                 let data: Vec<&str> = line.split_whitespace().collect();
-                let date: u64 = match data[1].to_string().parse() {
+                let date: i64 = match data[1].to_string().parse() {
                     Ok(n) => n,
                     Err(_) => panic!("Error parsing date string to u64"),
                 };
                 lastchecktime = timestamp-date;
+                if lastchecktime<1 {
+                    lastchecktime = 1;
+                }
                 println!("Temps depuis dernier check : {}s", lastchecktime)
             }
             if line.starts_with("cpujson") {
                 let data: Vec<&str> = line.split_whitespace().collect();
                 cpulastdata = serde_json::from_str(data[1]).unwrap();
             }
+            if line.starts_with("ctxt") {
+                let data: Vec<&str> = line.split_whitespace().collect();
+                let value: i64 = match data[1].to_string().parse() {
+                    Ok(n) => n,
+                    Err(_) => panic!("Error parsing date string to u64"),
+                };
+                rate_ctxt = ((ctxt as i64-value)/lastchecktime) as usize;
+            }
+            if line.starts_with("processes") {
+                let data: Vec<&str> = line.split_whitespace().collect();
+                let value: i64 = match data[1].to_string().parse() {
+                    Ok(n) => n,
+                    Err(_) => panic!("Error parsing date string to u64"),
+                };
+                rate_processes = ((processes as i64-value)/lastchecktime) as usize;
+            }
         }
     }
 
 
-    save_stats(file_stats, timestamp, &getcpunow);
+    save_stats(file_stats, timestamp, &getcpunow, ctxt, processes);
 
     let (mut diff_vec, added_removed) = compare_cpu_infos(getcpunow, cpulastdata);
-    diff_vec.sort_by(|a, b| a.name.cmp(&b.name));
+    //diff_vec.sort_by(|a, b| a.name.cmp(&b.name));
+    diff_vec.sort_by(|a, b| {
+        match (a.name.as_str(), b.name.as_str()) {
+            ("cpu", _) => std::cmp::Ordering::Less,
+            (_, "cpu") => std::cmp::Ordering::Greater,
+            (a_name, b_name) => {
+                let a_num = a_name.split("cpu").nth(1).unwrap().parse::<i32>().unwrap_or(std::i32::MAX);
+                let b_num = b_name.split("cpu").nth(1).unwrap().parse::<i32>().unwrap_or(std::i32::MAX);
+                a_num.cmp(&b_num)
+            }
+        }
+    });
+    
+    
+    
+    
+
 
     // ALERTS 
     if lastchecktime < 2 {
@@ -748,6 +838,7 @@ fn main() {
         println!("{} : {}", cpu.to_string(), act.to_string());
     }
     
+    
     // CPU INFOS
     if args_cpu_all | args_cpu_infos {
         let system_infos = get_system_infos();
@@ -756,11 +847,30 @@ fn main() {
             "Socket(s)", system_infos.cpu.socket_nbr_detected,
         );
         println!("{0: <10} | {1: <10}",
-            "CPU(s)", system_infos.cpu.cpu_nbr_online,
+            "CPU(s)", format!("{} ({} Core / {} Thread)", system_infos.cpu.cpu_nbr_online, system_infos.cpu.cpu_nbr_physical, system_infos.cpu.cpu_nbr_logical),
         );
         println!("{0: <10} | {1: <10}",
-            "Core", 4,
+            "Temp.", get_cpu_temperature(),
         );
+    }
+
+    // PROCESS INFOS
+    if args_cpu_all | args_cpu_infos {
+        println!();
+        println!("----------------------------");
+        println!("{0: <20} | {1: <10}",
+            "Context switch/s", rate_ctxt,
+        );
+        println!("{0: <20} | {1: <10}",
+            "Processes created/s", rate_processes,
+        );
+        println!("{0: <20} | {1: <10}",
+            "Processes running", procs_running,
+        );
+        println!("{0: <20} | {1: <10}",
+            "Processes bloacked/s", procs_blocked,
+        );
+        println!("----------------------------");
     }
 
     // CPU TIMES
@@ -802,17 +912,25 @@ fn main() {
     if args_cpu_all | args_cpu_softirqs {
         println!();
         println!(
-            "{0: <7} | {1: <10} | {2: <10}",
-            "CPU", "HI/s", "TIMER/s",
+            "{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}",
+            "CPU", "HI/s", "TIMER/s", "NET_TX/s", "NET_RX/s", "BLOCK/s", "IRQ_POLL/s", "TASKLET/s", "SCHED/s", "HRTIMER/s", "RCU/s"
         );
-        println!("------------------------------------------------------");
+        println!("-------------------------------------------------------------------------------------------------------------------------------------");
         if !first_start {
             for stats in &diff_vec {
                 let name = if stats.name == "cpu" { "all" } else { &stats.name };
-                println!("{0: <7} | {1: <10} | {2: <10}", 
+                println!("{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}", 
                     name,
-                    stats.softirqs.hi,
-                    stats.softirqs.timer,
+                    stats.softirqs.hi/lastchecktime,
+                    stats.softirqs.timer/lastchecktime,
+                    stats.softirqs.net_tx/lastchecktime,
+                    stats.softirqs.net_rx/lastchecktime,
+                    stats.softirqs.block/lastchecktime,
+                    stats.softirqs.irq_poll/lastchecktime,
+                    stats.softirqs.tasklet/lastchecktime,
+                    stats.softirqs.sched/lastchecktime,
+                    stats.softirqs.hrtimer/lastchecktime,
+                    stats.softirqs.rcu/lastchecktime,
                 );
             }
         }else {
@@ -821,6 +939,11 @@ fn main() {
         }
     }
 
-    println!("{:?}", get_cpu_status())
+    // CPU INTERRUPTS
+    if args_cpu_all | args_cpu_interrupts {
+
+    }
+
+    exit(_rc_ok);
 
 }

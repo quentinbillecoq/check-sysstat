@@ -110,6 +110,7 @@ dependencies = [
  "cargo-remote",
  "chrono",
  "clap 4.1.1",
+ "libc",
  "num_cpus",
  "serde 1.0.152",
  "serde_json",
