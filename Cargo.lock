@@ -111,6 +111,7 @@ dependencies = [
  "chrono",
  "clap 4.1.1",
  "libc",
+ "linked-hash-map",
  "num_cpus",
  "serde 1.0.152",
  "serde_json",

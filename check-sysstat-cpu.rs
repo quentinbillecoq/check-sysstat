@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use clap::{Command, Arg, ArgAction};
 use std::process::exit;
+use linked_hash_map::LinkedHashMap;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CpuSoftIrqs {
@@ -676,6 +677,51 @@ fn get_cpu_temperature() -> String {
 }
 
 
+fn output_horizontal_table() {
+
+}
+
+fn output_vertical_table(cli: bool, separator: bool, table: LinkedHashMap<String,String>) -> String{
+    let mut output = String::new();
+
+    // Retrieval of max key and value size
+    let mut max_key_length = 0;
+    let mut max_value_length = 0;
+    for (key, value) in &table {
+        let length_key = key.len();
+        let length_value = value.len();
+        if length_key > max_key_length {
+            max_key_length = length_key;
+        }
+        if length_value > max_value_length {
+            max_value_length = length_value;
+        }
+    }
+
+    if cli {
+        output.push_str("\n");
+        if separator {
+            output.push_str(&"-".repeat(max_key_length+max_value_length+4).to_string());
+            output.push_str("\n");
+        }
+        for (key, val) in table {
+            output.push_str(&format!("{0: <key_width$} | {1: <val_width$}",
+                key, 
+                val,
+                key_width=max_key_length, val_width=max_value_length
+            ).to_string());
+            output.push_str("\n");
+        }
+        if separator {
+            output.push_str(&"-".repeat(max_key_length+max_value_length+4).to_string());
+            output.push_str("\n");
+        }
+    }else {
+
+    }
+
+    output.trim_end_matches('\n').to_string()
+}
 
 
 fn main() {
@@ -750,6 +796,12 @@ fn main() {
                     .help("Threshold for critical alert")
                     .required(false)
                 )
+                .arg(Arg::new("cli")
+                    .long("cli")
+                    .action(ArgAction::SetTrue)
+                    .help("pass the output in cli mode")
+                    .required(false)
+                )
                 .arg(Arg::new("statsfile")
                     .short('s')
                     .long("statsfile")
@@ -771,6 +823,7 @@ fn main() {
     let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
     let warning_threshold: usize = *args.get_one::<i64>("warning").unwrap() as usize;
     let critical_threshold: usize = *args.get_one::<i64>("critical").unwrap() as usize;
+    let cli_mode: bool = *args.get_one::<bool>("cli").unwrap_or(&false);
     let file_stats: &str = args.get_one::<String>("statsfile").unwrap();
 
     let timestamp: i64 = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -883,36 +936,46 @@ fn main() {
     
     // CPU INFOS
     if args_cpu_all | args_cpu_infos {
+        let mut system_infos_hm: LinkedHashMap<String, String> = LinkedHashMap::new();
         let system_infos = get_system_infos();
+        system_infos_hm.insert(
+            "Socket(s)".to_string(),
+            system_infos.cpu.socket_nbr_detected.to_string(),
+        );
+        system_infos_hm.insert(
+            "CPU(s)".to_string(), 
+            format!("{} ({} Core / {} Thread)", system_infos.cpu.cpu_nbr_online, system_infos.cpu.cpu_nbr_physical, system_infos.cpu.cpu_nbr_logical).to_string(),
+        );
+        system_infos_hm.insert(
+            "Temp.".to_string(), 
+            get_cpu_temperature().to_string(),
+        );
+
         println!();
-        println!("{0: <10} | {1: <10}",
-            "Socket(s)", system_infos.cpu.socket_nbr_detected,
-        );
-        println!("{0: <10} | {1: <10}",
-            "CPU(s)", format!("{} ({} Core / {} Thread)", system_infos.cpu.cpu_nbr_online, system_infos.cpu.cpu_nbr_physical, system_infos.cpu.cpu_nbr_logical),
-        );
-        println!("{0: <10} | {1: <10}",
-            "Temp.", get_cpu_temperature(),
-        );
+        println!("{}", output_vertical_table(cli_mode, false, system_infos_hm));
     }
 
     // PROCESS INFOS
     if args_cpu_all | args_cpu_infos {
-        println!();
-        println!("----------------------------");
-        println!("{0: <20} | {1: <10}",
-            "Context switch/s", rate_ctxt,
+        let mut process_infos_hm: LinkedHashMap<String, String> = LinkedHashMap::new();
+        process_infos_hm.insert(
+            "Context switch/s".to_string(),
+            rate_ctxt.to_string(),
         );
-        println!("{0: <20} | {1: <10}",
-            "Processes created/s", rate_processes,
+        process_infos_hm.insert(
+            "Processes created/s".to_string(), 
+            rate_processes.to_string(),
         );
-        println!("{0: <20} | {1: <10}",
-            "Processes running", procs_running,
+        process_infos_hm.insert(
+            "Processes running".to_string(), 
+            procs_running.to_string(),
         );
-        println!("{0: <20} | {1: <10}",
-            "Processes bloacked/s", procs_blocked,
+        process_infos_hm.insert(
+            "Processes bloacked/s".to_string(), 
+            procs_blocked.to_string(),
         );
-        println!("----------------------------");
+        
+        print!("{}", output_vertical_table(cli_mode, true, process_infos_hm));
     }
 
     // CPU TIMES
@@ -984,6 +1047,9 @@ fn main() {
     if args_cpu_all | args_cpu_interrupts {
 
     }
+
+
+    // Output
 
 
     // Management of return codes
