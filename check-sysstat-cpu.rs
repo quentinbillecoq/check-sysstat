@@ -103,6 +103,7 @@ impl Default for CPUInfoFile {
 pub struct CpuStat {
     pub name: String,
     pub stat: CpuTime,
+    pub stat_prct: HashMap<String, f64>,
     pub softirqs: CpuSoftIrqs,
 }
 
@@ -261,40 +262,40 @@ fn round(x: f64, decimals: u32) -> f64 {
     (x * y).round() / y
 }
 
-fn calculate_percentages(cpu_time: &CpuTime) -> HashMap<&str, f64> {
+fn calculate_percentages(cpu_time: &CpuTime) -> HashMap<String, f64> {
     let total_time = cpu_time.user + cpu_time.nice + cpu_time.system + cpu_time.idle +
         cpu_time.iowait.unwrap_or(0) + cpu_time.irq.unwrap_or(0) +
         cpu_time.softirq.unwrap_or(0) + cpu_time.steal.unwrap_or(0) +
         cpu_time.guest.unwrap_or(0) + cpu_time.guest_nice.unwrap_or(0);
 
     let mut percentages = HashMap::new();
-    percentages.insert("user", (cpu_time.user as f64 / total_time as f64) * 100.0);
-    percentages.insert("nice", (cpu_time.nice as f64 / total_time as f64) * 100.0);
-    percentages.insert("system", (cpu_time.system as f64 / total_time as f64) * 100.0);
-    percentages.insert("idle", (cpu_time.idle as f64 / total_time as f64) * 100.0);
+    percentages.insert("user".to_string(), (cpu_time.user as f64 / total_time as f64) * 100.0);
+    percentages.insert("nice".to_string(), (cpu_time.nice as f64 / total_time as f64) * 100.0);
+    percentages.insert("system".to_string(), (cpu_time.system as f64 / total_time as f64) * 100.0);
+    percentages.insert("idle".to_string(), (cpu_time.idle as f64 / total_time as f64) * 100.0);
 
     if let Some(iowait) = cpu_time.iowait {
-        percentages.insert("iowait", (iowait as f64 / total_time as f64) * 100.0);
+        percentages.insert("iowait".to_string(), (iowait as f64 / total_time as f64) * 100.0);
     }
 
     if let Some(irq) = cpu_time.irq {
-        percentages.insert("irq", (irq as f64 / total_time as f64) * 100.0);
+        percentages.insert("irq".to_string(), (irq as f64 / total_time as f64) * 100.0);
     }
 
     if let Some(softirq) = cpu_time.softirq {
-        percentages.insert("softirq", (softirq as f64 / total_time as f64) * 100.0);
+        percentages.insert("softirq".to_string(), (softirq as f64 / total_time as f64) * 100.0);
     }
 
     if let Some(steal) = cpu_time.steal {
-        percentages.insert("steal", (steal as f64 / total_time as f64) * 100.0);
+        percentages.insert("steal".to_string(), (steal as f64 / total_time as f64) * 100.0);
     }
 
     if let Some(guest) = cpu_time.guest {
-        percentages.insert("guest", (guest as f64 / total_time as f64) * 100.0);
+        percentages.insert("guest".to_string(), (guest as f64 / total_time as f64) * 100.0);
     }
 
     if let Some(guest_nice) = cpu_time.guest_nice {
-        percentages.insert("guest_nice", (guest_nice as f64 / total_time as f64) * 100.0);
+        percentages.insert("guest_nice".to_string(), (guest_nice as f64 / total_time as f64) * 100.0);
     }
 
     percentages
@@ -373,6 +374,7 @@ pub fn compare_cpu_infos(v1: Vec<CpuStat>, v2: Vec<CpuStat>) -> (Vec<CpuStat>, H
             diff_vec.push(CpuStat {
                 name: v1_cpu.name.clone(),
                 stat: diff_cputime,
+                stat_prct: v1_cpu.stat_prct.clone(),
                 softirqs: diff_softirqs,
             });
         } else {
@@ -456,9 +458,12 @@ fn get_cpu_stats() -> (Vec<CpuStat>, usize, usize, usize ,usize){
                 guest_nice
             };
 
+            let percentages = calculate_percentages(&stat);
+
             cpu_infos.push(CpuStat{
                 name,
                 stat,
+                stat_prct: percentages,
                 softirqs
             })
         }
@@ -725,6 +730,26 @@ fn main() {
                     .help("Get CPU software interrupts")
                     .required(false)
                 )
+                .arg(Arg::new("warning")
+                    .short('W')
+                    .long("wargning")
+                    .value_name("threshold")
+                    .default_value("0")
+                    .action(ArgAction::Set)
+                    .value_parser(0..101)
+                    .help("Threshold for warning alert")
+                    .required(false)
+                )
+                .arg(Arg::new("critical")
+                    .short('C')
+                    .long("critical")
+                    .value_name("threshold")
+                    .default_value("0")
+                    .action(ArgAction::Set)
+                    .value_parser(0..101)
+                    .help("Threshold for critical alert")
+                    .required(false)
+                )
                 .arg(Arg::new("statsfile")
                     .short('s')
                     .long("statsfile")
@@ -744,6 +769,8 @@ fn main() {
     let args_cpu_times: bool = *args.get_one::<bool>("times").unwrap_or(&false);
     let args_cpu_interrupts: bool = *args.get_one::<bool>("interrupts").unwrap_or(&false);
     let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
+    let warning_threshold: usize = *args.get_one::<i64>("warning").unwrap() as usize;
+    let critical_threshold: usize = *args.get_one::<i64>("critical").unwrap() as usize;
     let file_stats: &str = args.get_one::<String>("statsfile").unwrap();
 
     let timestamp: i64 = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -812,7 +839,6 @@ fn main() {
     save_stats(file_stats, timestamp, &getcpunow, ctxt, processes);
 
     let (mut diff_vec, added_removed) = compare_cpu_infos(getcpunow, cpulastdata);
-    //diff_vec.sort_by(|a, b| a.name.cmp(&b.name));
     diff_vec.sort_by(|a, b| {
         match (a.name.as_str(), b.name.as_str()) {
             ("cpu", _) => std::cmp::Ordering::Less,
@@ -830,7 +856,23 @@ fn main() {
     
 
 
-    // ALERTS 
+    // ALERTS
+    for stats in &diff_vec {
+        if stats.name == "cpu" {
+            let prct_total_used = round(100.0-stats.stat_prct["idle"],2);
+            println!("Total cpu used : {:?}%", prct_total_used);
+            if warning_threshold != 0 {
+                if prct_total_used >= warning_threshold as f64 && (critical_threshold == 0 || prct_total_used <= critical_threshold as f64) {
+                    println!("Warning : CPU usage exceed warning threshold {}% (Threshold : {}%)", prct_total_used, warning_threshold);
+                }
+            }
+            if critical_threshold != 0 {
+                if prct_total_used >= critical_threshold as f64 {
+                    println!("Critical : CPU usage exceed critical threshold {}% (Threshold : {}%)", prct_total_used, critical_threshold);
+                }
+            }
+        }
+    }
     if lastchecktime < 2 {
         println!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime);
     }
@@ -885,8 +927,7 @@ fn main() {
             for stats in &diff_vec {
                     let name = if stats.name == "cpu" { "all" } else { &stats.name };
 
-                    let percentages = calculate_percentages(&stats.stat);
-                    //println!("{:?}", percentages);
+                    let percentages = &stats.stat_prct;
 
                     println!("{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10?} | {6: <10?} | {7: <10?} | {8: <10?} | {9: <10?} | {10: <10?}", 
                         name,
