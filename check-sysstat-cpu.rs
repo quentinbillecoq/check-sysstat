@@ -302,9 +302,9 @@ fn calculate_percentages(cpu_time: &CpuTime) -> HashMap<String, f64> {
     percentages
 }
 
-pub fn compare_cpu_infos(v1: Vec<CpuStat>, v2: Vec<CpuStat>) -> (Vec<CpuStat>, HashMap<std::string::String, &'static str>) {
+pub fn compare_cpu_infos(v1: Vec<CpuStat>, v2: Vec<CpuStat>) -> (Vec<CpuStat>, LinkedHashMap<std::string::String, &'static str>) {
     let mut diff_vec = Vec::new();
-    let mut added_removed = HashMap::new();
+    let mut added_removed = LinkedHashMap::new();
 
     let v1_map: HashMap<&str, &CpuStat> = v1.iter().map(|x| (x.name.as_str(), x)).collect();
     let v2_map: HashMap<&str, &CpuStat> = v2.iter().map(|x| (x.name.as_str(), x)).collect();
@@ -676,30 +676,26 @@ fn get_cpu_temperature() -> String {
     }
 }
 
-
-fn output_horizontal_table() {
-
-}
-
-fn output_vertical_table(cli: bool, separator: bool, table: LinkedHashMap<String,String>) -> String{
+fn output_vertical_table(output_mode: &str, separator: bool, table: LinkedHashMap<String,String>) -> String{
     let mut output = String::new();
 
-    // Retrieval of max key and value size
-    let mut max_key_length = 0;
-    let mut max_value_length = 0;
-    for (key, value) in &table {
-        let length_key = key.len();
-        let length_value = value.len();
-        if length_key > max_key_length {
-            max_key_length = length_key;
-        }
-        if length_value > max_value_length {
-            max_value_length = length_value;
-        }
-    }
+    if output_mode == "cli" {
 
-    if cli {
-        output.push_str("\n");
+        // Retrieval of max key and value size
+        let mut max_key_length = 0;
+        let mut max_value_length = 0;
+        for (key, value) in &table {
+            let length_key = key.len();
+            let length_value = value.len();
+            if length_key > max_key_length {
+                max_key_length = length_key;
+            }
+            if length_value > max_value_length {
+                max_value_length = length_value;
+            }
+        }
+
+        output.push_str(" \n");
         if separator {
             output.push_str(&"-".repeat(max_key_length+max_value_length+4).to_string());
             output.push_str("\n");
@@ -716,13 +712,125 @@ fn output_vertical_table(cli: bool, separator: bool, table: LinkedHashMap<String
             output.push_str(&"-".repeat(max_key_length+max_value_length+4).to_string());
             output.push_str("\n");
         }
-    }else {
+    }else if output_mode == "check" {
+
+        output.push_str("<br>");
+        output.push_str("<table class='check-table'>");
+        for (key, val) in table {
+            output.push_str("<tr>");
+            output.push_str(&format!("<th class='check-table-th'>{}</th>", key));
+            output.push_str(&format!("<td class='check-table-td'>{}</td>", val));
+            output.push_str("</tr>");
+        }
+        output.push_str("</table>");
+
+    }else if output_mode == "json" {
 
     }
 
-    output.trim_end_matches('\n').to_string()
+    //output.trim_end_matches('\n').to_string()
+    output
 }
 
+fn output_horizontal_table(output_mode: &str, separator: bool, table: Vec<Vec<String>>) -> String {
+    let mut output = String::new();
+
+    if output_mode == "cli" {
+
+        output.push_str("\n");
+        for t in 0..table.len() {
+            let mut line = &table[t];
+            let mut temp_output = String::new();
+
+            for i in 0..line.len() {
+                temp_output.push_str(&line[i].to_string());
+                temp_output.push_str(&" ".repeat(10-line[i].len()).to_string());
+                if i < line.len() - 1 {
+                    temp_output.push_str("| ");
+                }
+            }
+            if t == 0 {
+                output.push_str(&"-".repeat(temp_output.len()).to_string());
+                output.push_str("\n");
+            }
+            output.push_str(&temp_output);
+            output.push_str("\n");
+            if t == 0 {
+                output.push_str(&"-".repeat(temp_output.len()).to_string());
+                output.push_str("\n");
+            }
+        } 
+
+    }else if output_mode == "check" {
+
+        output.push_str("<br>");
+        output.push_str("<table class='check-table'>");
+        for t in 0..table.len() {
+            let mut line = &table[t];
+            let mut temp_output = String::new();
+            output.push_str("<tr>");
+            for i in 0..line.len() {
+                if t == 0 {
+                    temp_output.push_str(&format!("<th class='check-table-th'>{}</th>", &line[i].to_string()));
+                }else{
+                    temp_output.push_str(&format!("<td class='check-table-td'>{}</th>", &line[i].to_string()));
+                }
+            }
+            output.push_str(&temp_output);
+            output.push_str("<tr>");
+        } 
+        output.push_str("</table>");
+
+    }else if output_mode == "json" {
+
+
+
+    }
+    
+    output
+}
+
+fn output_alert(output_mode: &str, code: usize, message: String) -> String{
+    let mut output = String::new();
+
+
+    let msg_html_ok = "<span style='color:#2baf14;font-weight: bold;'>[OK]</span> ";
+    let msg_html_wargning = "<span style='color:#e48c19;font-weight: bold;'>[WARNING]</span> ";
+    let msg_html_critical = "<span style='color:#e41919;font-weight: bold;'>[CRITICAL]</span> ";
+    let msg_html_unknown = "<span style='color:#e41919;font-weight: bold;'>[UNKNOWN]</span> ";
+
+    if output_mode == "cli" {
+
+        if code == 0 {
+            output.push_str("[OK] ");
+        }else if code == 1 {
+            output.push_str("[WARNING] ");
+        }else if code == 2 {
+            output.push_str("[CRITICAL] ");
+        }else if code == 3 {
+            output.push_str("[UNKNOWN] ");
+        }
+        output.push_str(&message);
+
+    }else if output_mode == "check" {
+
+        if code == 0 {
+            output.push_str(&msg_html_ok);
+        }else if code == 1 {
+            output.push_str(&msg_html_wargning);
+        }else if code == 2 {
+            output.push_str(&msg_html_critical);
+        }else if code == 3 {
+            output.push_str(&msg_html_unknown);
+        }
+        output.push_str(&message);
+
+    }else if output_mode == "json" {
+
+    }
+
+    output
+}
 
 fn main() {
 
@@ -796,10 +904,12 @@ fn main() {
                     .help("Threshold for critical alert")
                     .required(false)
                 )
-                .arg(Arg::new("cli")
-                    .long("cli")
-                    .action(ArgAction::SetTrue)
-                    .help("pass the output in cli mode")
+                .arg(Arg::new("mode")
+                    .long("mode")
+                    .action(ArgAction::Set)
+                    .default_value("cli")
+                    .value_parser(["cli", "check", "json"])
+                    .help("Change output mode")
                     .required(false)
                 )
                 .arg(Arg::new("statsfile")
@@ -823,7 +933,7 @@ fn main() {
     let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
     let warning_threshold: usize = *args.get_one::<i64>("warning").unwrap() as usize;
     let critical_threshold: usize = *args.get_one::<i64>("critical").unwrap() as usize;
-    let cli_mode: bool = *args.get_one::<bool>("cli").unwrap_or(&false);
+    let output_mode: &str = args.get_one::<String>("mode").unwrap();
     let file_stats: &str = args.get_one::<String>("statsfile").unwrap();
 
     let timestamp: i64 = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -863,7 +973,7 @@ fn main() {
                 if lastchecktime<1 {
                     lastchecktime = 1;
                 }
-                println!("Temps depuis dernier check : {}s", lastchecktime)
+                //println!("Temps depuis dernier check : {}s", lastchecktime)
             }
             if line.starts_with("cpujson") {
                 let data: Vec<&str> = line.split_whitespace().collect();
@@ -906,31 +1016,45 @@ fn main() {
     
     
     
-    
+    // Print CSS if no cli mode enabled
+    if output_mode == "check" {
+        print!("{}", "<style type='text/css'> .check-table, .check-table td, .check-table th { border: 1px solid #000000 !important; border-collapse: collapse !important; color: #000000 !important; } .check-table-th { background-color: #E8E7E7 !important; max-width: 20% !important; word-break: break-word !important; background-color: #E8E7E7 !important; text-align: center; padding-left: 10px !important; padding-right: 10px !important; } .check-table-td { font-weight: normal !important; word-break: break-word !important; background-color: #FFFFFF !important; padding-left: 10px !important; padding-right: 10px !important; } .check-host-command { font-style: italic !important; color: #7F7F7F !important; } .check-table-center { text-align: center; } </style>");
+    }
 
 
     // ALERTS
+    let mut count_alerts: usize = 0;
+    if lastchecktime < 2 {
+        print!("{}",output_alert(output_mode, 2, format!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime)));
+        count_alerts += 1;
+    }
     for stats in &diff_vec {
         if stats.name == "cpu" {
             let prct_total_used = round(100.0-stats.stat_prct["idle"],2);
-            println!("Total cpu used : {:?}%", prct_total_used);
             if warning_threshold != 0 {
                 if prct_total_used >= warning_threshold as f64 && (critical_threshold == 0 || prct_total_used <= critical_threshold as f64) {
-                    println!("Warning : CPU usage exceed warning threshold {}% (Threshold : {}%)", prct_total_used, warning_threshold);
+                    print!("{}",output_alert(output_mode, 1, format!("Warning : CPU usage exceed warning threshold {}% (Threshold : {}%)", prct_total_used, warning_threshold)));
                 }
             }
             if critical_threshold != 0 {
                 if prct_total_used >= critical_threshold as f64 {
-                    println!("Critical : CPU usage exceed critical threshold {}% (Threshold : {}%)", prct_total_used, critical_threshold);
+                    print!("{}",output_alert(output_mode, 2, format!("Critical : CPU usage exceed critical threshold {}% (Threshold : {}%)", prct_total_used, critical_threshold)));
                 }
             }
         }
     }
-    if lastchecktime < 2 {
-        println!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime);
-    }
     for (cpu, act) in added_removed {
-        println!("{} : {}", cpu.to_string(), act.to_string());
+        if cpu != "cpu" {
+            print!("{}",output_alert(output_mode, 3, format!("{} : {}", cpu.to_string(), act.to_string())));
+        }
+    }
+
+    if count_alerts > 0 {
+        if output_mode == "cli" {
+            print!("\n");
+        }else if output_mode == "check" {
+            print!("<br>");
+        }
     }
     
     
@@ -951,8 +1075,7 @@ fn main() {
             get_cpu_temperature().to_string(),
         );
 
-        println!();
-        println!("{}", output_vertical_table(cli_mode, false, system_infos_hm));
+        print!("{}", output_vertical_table(output_mode, false, system_infos_hm));
     }
 
     // PROCESS INFOS
@@ -975,71 +1098,101 @@ fn main() {
             procs_blocked.to_string(),
         );
         
-        print!("{}", output_vertical_table(cli_mode, true, process_infos_hm));
+        print!("{}", output_vertical_table(output_mode, true, process_infos_hm));
     }
 
     // CPU TIMES
     if args_cpu_all | args_cpu_times {
-        println!();
-        println!(
-            "{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}",
-            "CPU", "%usr", "%nice", "%sys", "%iowait", "%irq", "%soft", "%steal", "%guest", "%gnice", "%idle"
-        );
-        println!("-------------------------------------------------------------------------------------------------------------------------------------");
+        let mut cpu_times_vec: Vec<Vec<String>> = Vec::new();
+
+        cpu_times_vec.push(vec![
+            "CPU".to_string(), 
+            "%usr".to_string(), 
+            "%nice".to_string(), 
+            "%sys".to_string(), 
+            "%iowait".to_string(), 
+            "%irq".to_string(), 
+            "%soft".to_string(), 
+            "%steal".to_string(), 
+            "%guest".to_string(), 
+            "%gnice".to_string(), 
+            "%idle".to_string()
+        ]);
         if !first_start {
             for stats in &diff_vec {
-                    let name = if stats.name == "cpu" { "all" } else { &stats.name };
+                let name = if stats.name == "cpu" { "all" } else { &stats.name };
 
-                    let percentages = &stats.stat_prct;
+                let percentages = &stats.stat_prct;
 
-                    println!("{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10?} | {6: <10?} | {7: <10?} | {8: <10?} | {9: <10?} | {10: <10?}", 
-                        name,
-                        round(percentages["user"], 2),
-                        round(percentages["nice"], 2),
-                        round(percentages["system"], 2),
-                        round(percentages["iowait"], 2),
-                        round(percentages["irq"], 2),
-                        round(percentages["softirq"], 2),
-                        round(percentages["steal"], 2),
-                        round(percentages["guest"], 2),
-                        round(percentages["guest_nice"], 2),
-                        round(percentages["idle"], 2),
-                );
+                cpu_times_vec.push(vec![
+                    name.to_string(),
+                    round(percentages["user"], 2).to_string(),
+                    round(percentages["nice"], 2).to_string(),
+                    round(percentages["system"], 2).to_string(),
+                    round(percentages["iowait"], 2).to_string(),
+                    round(percentages["irq"], 2).to_string(),
+                    round(percentages["softirq"], 2).to_string(),
+                    round(percentages["steal"], 2).to_string(),
+                    round(percentages["guest"], 2).to_string(),
+                    round(percentages["guest_nice"], 2).to_string(),
+                    round(percentages["idle"], 2).to_string(),
+                ]);
             }
-        }else {
-            // If first run, stats initializing
-            println!("First run : initializing...");
         }
+        
+        print!("{}", output_horizontal_table(output_mode, false, cpu_times_vec));
+        if first_start {
+            // If first run, stats initializing
+            if output_mode == "cli" {
+                println!("First run : initializing...");
+            }
+        }
+
     }
     
     // CPU SOFTIRQS
     if args_cpu_all | args_cpu_softirqs {
-        println!();
-        println!(
-            "{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}",
-            "CPU", "HI/s", "TIMER/s", "NET_TX/s", "NET_RX/s", "BLOCK/s", "IRQ_POLL/s", "TASKLET/s", "SCHED/s", "HRTIMER/s", "RCU/s"
-        );
-        println!("-------------------------------------------------------------------------------------------------------------------------------------");
+        let mut cpu_softirqs_vec: Vec<Vec<String>> = Vec::new();
+
+        cpu_softirqs_vec.push(vec![
+            "CPU".to_string(), 
+            "HI/s".to_string(), 
+            "TIMER/s".to_string(), 
+            "NET_TX/s".to_string(), 
+            "NET_RX/s".to_string(), 
+            "BLOCK/s".to_string(), 
+            "IRQ_POLL/s".to_string(), 
+            "TASKLET/s".to_string(), 
+            "SCHED/s".to_string(), 
+            "HRTIMER/s".to_string(), 
+            "RCU/s".to_string(), 
+        ]);
+
         if !first_start {
             for stats in &diff_vec {
                 let name = if stats.name == "cpu" { "all" } else { &stats.name };
-                println!("{0: <7} | {1: <10} | {2: <10} | {3: <10} | {4: <10} | {5: <10} | {6: <10} | {7: <10} | {8: <10} | {9: <10} | {10: <10}", 
-                    name,
-                    stats.softirqs.hi/lastchecktime,
-                    stats.softirqs.timer/lastchecktime,
-                    stats.softirqs.net_tx/lastchecktime,
-                    stats.softirqs.net_rx/lastchecktime,
-                    stats.softirqs.block/lastchecktime,
-                    stats.softirqs.irq_poll/lastchecktime,
-                    stats.softirqs.tasklet/lastchecktime,
-                    stats.softirqs.sched/lastchecktime,
-                    stats.softirqs.hrtimer/lastchecktime,
-                    stats.softirqs.rcu/lastchecktime,
-                );
+                cpu_softirqs_vec.push(vec![
+                    name.to_string(),
+                    (stats.softirqs.hi/lastchecktime).to_string(),
+                    (stats.softirqs.timer/lastchecktime).to_string(),
+                    (stats.softirqs.net_tx/lastchecktime).to_string(),
+                    (stats.softirqs.net_rx/lastchecktime).to_string(),
+                    (stats.softirqs.block/lastchecktime).to_string(),
+                    (stats.softirqs.irq_poll/lastchecktime).to_string(),
+                    (stats.softirqs.tasklet/lastchecktime).to_string(),
+                    (stats.softirqs.sched/lastchecktime).to_string(),
+                    (stats.softirqs.hrtimer/lastchecktime).to_string(),
+                    (stats.softirqs.rcu/lastchecktime).to_string(),
+                ]);
             }
-        }else {
+        }
+
+        print!("{}", output_horizontal_table(output_mode, false, cpu_softirqs_vec));
+        if first_start {
             // If first run, stats initializing
-            println!("First run : initializing...");
+            if output_mode == "cli" {
+                println!("First run : initializing...");
+            }
         }
     }
 
