@@ -681,12 +681,12 @@ fn get_cpu_temperature() -> String {
 fn main() {
 
     // 
-    // -- RETURN CODE --
-    // Example : exit(_RC_UNKNOWN);
+    // -- RETURN CODE Count --
+    //
     let _rc_ok = 0;
-    let _rc_warning = 1;
-    let _rc_critical = 2;
-    let _rc_unknown = 3;
+    let _rc_warning = 0;
+    let _rc_critical = 0;
+    let _rc_unknown = 0;
 
     // 
     // -- ARGS --
@@ -985,6 +985,16 @@ fn main() {
 
     }
 
-    exit(_rc_ok);
+
+    // Management of return codes
+    if _rc_unknown > 0 {
+        exit(3);
+    }else if _rc_critical > 0 {
+        exit(2);
+    }else if _rc_warning > 0 {
+        exit(1);
+    }else {
+        exit(0);
+    }
 
 }
