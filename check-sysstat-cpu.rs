@@ -732,14 +732,14 @@ fn output_vertical_table(output_mode: &str, separator: bool, table: LinkedHashMa
     output
 }
 
-fn output_horizontal_table(output_mode: &str, separator: bool, table: Vec<Vec<String>>) -> String {
+fn output_horizontal_table(output_mode: &str, _separator: bool, table: Vec<Vec<String>>) -> String {
     let mut output = String::new();
 
     if output_mode == "cli" {
 
         output.push_str("\n");
         for t in 0..table.len() {
-            let mut line = &table[t];
+            let line = &table[t];
             let mut temp_output = String::new();
 
             for i in 0..line.len() {
@@ -766,7 +766,7 @@ fn output_horizontal_table(output_mode: &str, separator: bool, table: Vec<Vec<St
         output.push_str("<br>");
         output.push_str("<table class='check-table'>");
         for t in 0..table.len() {
-            let mut line = &table[t];
+            let line = &table[t];
             let mut temp_output = String::new();
             output.push_str("<tr>");
             for i in 0..line.len() {
@@ -797,7 +797,7 @@ fn output_alert(output_mode: &str, code: usize, message: String) -> String{
     let msg_html_ok = "<span style='color:#2baf14;font-weight: bold;'>[OK]</span> ";
     let msg_html_wargning = "<span style='color:#e48c19;font-weight: bold;'>[WARNING]</span> ";
     let msg_html_critical = "<span style='color:#e41919;font-weight: bold;'>[CRITICAL]</span> ";
-    let msg_html_unknown = "<span style='color:#e41919;font-weight: bold;'>[UNKNOWN]</span> ";
+    let msg_html_unknown = "<span style='color:#696b69;font-weight: bold;'>[UNKNOWN]</span> ";
 
     if output_mode == "cli" {
 
@@ -811,6 +811,7 @@ fn output_alert(output_mode: &str, code: usize, message: String) -> String{
             output.push_str("[UNKNOWN] ");
         }
         output.push_str(&message);
+        output.push_str("\n");
 
     }else if output_mode == "check" {
 
@@ -824,6 +825,7 @@ fn output_alert(output_mode: &str, code: usize, message: String) -> String{
             output.push_str(&msg_html_unknown);
         }
         output.push_str(&message);
+        output.push_str("<br>");
 
     }else if output_mode == "json" {
 
@@ -837,10 +839,10 @@ fn main() {
     // 
     // -- RETURN CODE Count --
     //
-    let _rc_ok = 0;
-    let _rc_warning = 0;
-    let _rc_critical = 0;
-    let _rc_unknown = 0;
+    let mut _rc_ok = 0;
+    let mut _rc_warning = 0;
+    let mut _rc_critical = 0;
+    let mut _rc_unknown = 0;
 
     // 
     // -- ARGS --
@@ -1024,8 +1026,12 @@ fn main() {
 
     // ALERTS
     let mut count_alerts: usize = 0;
+    let mut output_alerts: String = String::new();
+    let mut max_output_alerts: usize = 0;
     if lastchecktime < 2 {
-        print!("{}",output_alert(output_mode, 2, format!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime)));
+        _rc_critical += 1;
+        if max_output_alerts < 2 { max_output_alerts = 2; }
+        output_alerts.push_str(&format!("{}",output_alert(output_mode, 2, format!("Interval between two executions is too short, the information may be erroneous. It is advisable to wait at least 2 seconds before a second execution. Last interval ({}s)", lastchecktime))));
         count_alerts += 1;
     }
     for stats in &diff_vec {
@@ -1033,28 +1039,50 @@ fn main() {
             let prct_total_used = round(100.0-stats.stat_prct["idle"],2);
             if warning_threshold != 0 {
                 if prct_total_used >= warning_threshold as f64 && (critical_threshold == 0 || prct_total_used <= critical_threshold as f64) {
-                    print!("{}",output_alert(output_mode, 1, format!("Warning : CPU usage exceed warning threshold {}% (Threshold : {}%)", prct_total_used, warning_threshold)));
+                    _rc_warning += 1;
+                    if max_output_alerts < 1 { max_output_alerts = 1; }
+                    output_alerts.push_str(&format!("{}",output_alert(output_mode, 1, format!("CPU usage exceed warning threshold {}% (Threshold : {}%)", prct_total_used, warning_threshold))));
+                    count_alerts += 1;
                 }
-            }
+            }  
             if critical_threshold != 0 {
                 if prct_total_used >= critical_threshold as f64 {
-                    print!("{}",output_alert(output_mode, 2, format!("Critical : CPU usage exceed critical threshold {}% (Threshold : {}%)", prct_total_used, critical_threshold)));
+                    _rc_critical += 1;
+                    if max_output_alerts < 2 { max_output_alerts = 2; }
+                    output_alerts.push_str(&format!("{}",output_alert(output_mode, 2, format!("CPU usage exceed critical threshold {}% (Threshold : {}%)", prct_total_used, critical_threshold))));
+                    count_alerts += 1;
                 }
             }
         }
     }
     for (cpu, act) in added_removed {
         if cpu != "cpu" {
-            print!("{}",output_alert(output_mode, 3, format!("{} : {}", cpu.to_string(), act.to_string())));
+            _rc_unknown += 1;
+            if max_output_alerts < 3 { max_output_alerts = 3; }
+            output_alerts.push_str(&format!("{}",output_alert(output_mode, 3, format!("{} : {}", cpu.to_string(), act.to_string()))));
+            count_alerts += 1;
         }
+    }
+
+    if first_start {
+        _rc_unknown += 1;
     }
 
     if count_alerts > 0 {
         if output_mode == "cli" {
+            print!("{}", output_alerts);
             print!("\n");
         }else if output_mode == "check" {
+            if first_start {
+                println!("{}",output_alert(output_mode, 3, "First run : initializing...".to_string()));
+            }else{
+                println!("{}",output_alert(output_mode, max_output_alerts, "Many alerts, more information in the long output !".to_string()));
+            }
+            print!("{}", output_alerts);
             print!("<br>");
         }
+    }else if first_start {
+        println!("{}",output_alert(output_mode, 3, "First run : initializing...".to_string()));
     }
     
     
@@ -1145,6 +1173,8 @@ fn main() {
             // If first run, stats initializing
             if output_mode == "cli" {
                 println!("First run : initializing...");
+            }else if output_mode == "check" {
+                print!("First run : initializing...<br>");
             }
         }
 
@@ -1192,6 +1222,8 @@ fn main() {
             // If first run, stats initializing
             if output_mode == "cli" {
                 println!("First run : initializing...");
+            }else if output_mode == "check" {
+                print!("First run : initializing...<br>");
             }
         }
     }
@@ -1200,10 +1232,6 @@ fn main() {
     if args_cpu_all | args_cpu_interrupts {
 
     }
-
-
-    // Output
-
 
     // Management of return codes
     if _rc_unknown > 0 {
