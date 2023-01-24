@@ -1076,10 +1076,14 @@ fn main() {
             if first_start {
                 println!("{}",output_alert(output_mode, 3, "First run : initializing...".to_string()));
             }else{
-                println!("{}",output_alert(output_mode, max_output_alerts, "Many alerts, more information in the long output !".to_string()));
+                if count_alerts > 1 {
+                    println!("{}",output_alert(output_mode, max_output_alerts, "Many alerts, more information in the long output !".to_string()));
+                }
             }
             print!("{}", output_alerts);
-            print!("<br>");
+            if count_alerts == 1 {
+                println!("");
+            }
         }
     }else if first_start {
         println!("{}",output_alert(output_mode, 3, "First run : initializing...".to_string()));
@@ -1122,7 +1126,7 @@ fn main() {
             procs_running.to_string(),
         );
         process_infos_hm.insert(
-            "Processes bloacked/s".to_string(), 
+            "Processes blocaked".to_string(), 
             procs_blocked.to_string(),
         );
         
