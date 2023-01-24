@@ -7,12 +7,53 @@ CPU
 - [x] CPUs hot add or remove detection
 - [x] CPU global usage with threshold (C/W)
 
-### Informations
+### Summary Informations
 - [x] Number of socket (Physical processor)
 - [x] Number of CPU(s) (Physical core / logical core (Thread))
 - [ ] Temperature (If available)
 
-### Process info
+### Detailed Informations
+- [ ] Architecture 
+- [ ] CPU op-mode(s)
+- [ ] Byte Order
+- [x] Number of socket (Physical processor)
+- [x] Number of CPU(s) (Physical core / logical core (Thread))
+- [ ] Thread(s) per core
+- [ ] Core(s) per socket
+- [ ] NUMA node(s)
+- [ ] NUMA nodes Informations(s)
+- [ ] Vendor ID
+- [ ] BIOS Vendor ID
+- [ ] CPU family
+- [ ] Model
+- [ ] Model name
+- [ ] BIOS Model name
+- [ ] Stepping
+- [ ] CPU MHz
+- [ ] BogoMIPS
+- [ ] Hypervisor vendor
+- [ ] Virtualization type
+- [ ] L1d cache
+- [ ] L1i cache
+- [ ] L2 cache
+- [ ] L3 cache
+- [ ] Flags
+
+### Vulnerabilities
+- [ ] itlb_multihit
+- [ ] l1tf
+- [ ] mds
+- [ ] meltdown
+- [ ] spec_store_bypass
+- [ ] spectre_v1
+- [ ] spectre_v2
+- [ ] srbds
+- [ ] tsx_async_abort
+
+### Summary Numa Node Informations
+- [ ] Node list with associated CPU 
+
+### Process Info
 - [x] Context switch
     - [ ] Total since startup
     - [x] Per seconde via last script run
