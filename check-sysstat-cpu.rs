@@ -737,6 +737,18 @@ fn output_horizontal_table(output_mode: &str, _separator: bool, table: Vec<Vec<S
 
     if output_mode == "cli" {
 
+        let mut max_len_by_index: HashMap<usize, usize> = HashMap::new();
+        for (i, subvec) in table.iter().enumerate() {
+            for (j,_) in subvec.iter().enumerate() {
+                if !max_len_by_index.contains_key(&j) {
+                    max_len_by_index.insert(j, 0);
+                }
+                if subvec[j].len() > max_len_by_index[&j] {
+                    max_len_by_index.insert(j ,subvec[j].len());
+                }
+            }
+        }
+
         output.push_str("\n");
         for t in 0..table.len() {
             let line = &table[t];
@@ -744,7 +756,7 @@ fn output_horizontal_table(output_mode: &str, _separator: bool, table: Vec<Vec<S
 
             for i in 0..line.len() {
                 temp_output.push_str(&line[i].to_string());
-                temp_output.push_str(&" ".repeat(10-line[i].len()).to_string());
+                temp_output.push_str(&" ".repeat((max_len_by_index[&i]+1)-line[i].len()).to_string());
                 if i < line.len() - 1 {
                     temp_output.push_str("| ");
                 }
@@ -1139,16 +1151,16 @@ fn main() {
 
         cpu_times_vec.push(vec![
             "CPU".to_string(), 
-            "%usr".to_string(), 
-            "%nice".to_string(), 
-            "%sys".to_string(), 
-            "%iowait".to_string(), 
-            "%irq".to_string(), 
-            "%soft".to_string(), 
-            "%steal".to_string(), 
-            "%guest".to_string(), 
-            "%gnice".to_string(), 
-            "%idle".to_string()
+            "usr (%)".to_string(), 
+            "nice (%)".to_string(), 
+            "sys (%)".to_string(), 
+            "iowait (%)".to_string(), 
+            "irq (%)".to_string(), 
+            "soft (%)".to_string(), 
+            "steal (%)".to_string(), 
+            "guest (%)".to_string(), 
+            "gnice (%)".to_string(), 
+            "idle (%)".to_string()
         ]);
         if !first_start {
             for stats in &diff_vec {
@@ -1190,16 +1202,16 @@ fn main() {
 
         cpu_softirqs_vec.push(vec![
             "CPU".to_string(), 
-            "HI/s".to_string(), 
-            "TIMER/s".to_string(), 
-            "NET_TX/s".to_string(), 
-            "NET_RX/s".to_string(), 
-            "BLOCK/s".to_string(), 
-            "IRQ_POLL/s".to_string(), 
-            "TASKLET/s".to_string(), 
-            "SCHED/s".to_string(), 
-            "HRTIMER/s".to_string(), 
-            "RCU/s".to_string(), 
+            "HI (/s)".to_string(), 
+            "TIMER (/s)".to_string(), 
+            "NET_TX (/s)".to_string(), 
+            "NET_RX (/s)".to_string(), 
+            "BLOCK (/s)".to_string(), 
+            "IRQ_POLL (/s)".to_string(), 
+            "TASKLET (/s)".to_string(), 
+            "SCHED (/s)".to_string(), 
+            "HRTIMER (/s)".to_string(), 
+            "RCU (/s)".to_string(), 
         ]);
 
         if !first_start {
