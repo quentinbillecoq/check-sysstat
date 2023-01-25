@@ -738,7 +738,7 @@ fn output_horizontal_table(output_mode: &str, _separator: bool, table: Vec<Vec<S
     if output_mode == "cli" {
 
         let mut max_len_by_index: HashMap<usize, usize> = HashMap::new();
-        for (i, subvec) in table.iter().enumerate() {
+        for (_i, subvec) in table.iter().enumerate() {
             for (j,_) in subvec.iter().enumerate() {
                 if !max_len_by_index.contains_key(&j) {
                     max_len_by_index.insert(j, 0);
@@ -932,7 +932,7 @@ fn main() {
                     .value_name("PATH")
                     .default_value("/tmp/check-sysstat-cpu.stats")
                     .action(ArgAction::Set)
-                    .help("File where is stocked last stats for next the run")
+                    .help("Where is stocked file stats for next run")
                     .required(false)
                 )
                 .get_matches();
