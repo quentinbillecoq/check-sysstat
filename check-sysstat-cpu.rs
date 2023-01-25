@@ -701,7 +701,7 @@ fn output_vertical_table(output_mode: &str, separator: bool, table: LinkedHashMa
             output.push_str("\n");
         }
         for (key, val) in table {
-            output.push_str(&format!("{0: <key_width$} | {1: <val_width$}",
+            output.push_str(&format!("{0: <key_width$} : {1: <val_width$}",
                 key, 
                 val,
                 key_width=max_key_length, val_width=max_value_length
@@ -802,6 +802,44 @@ fn output_horizontal_table(output_mode: &str, _separator: bool, table: Vec<Vec<S
     output
 }
 
+fn output_double_table(output_mode: &str, table: Vec<Vec<&str>>) -> String{
+    let mut output = String::new();
+
+    if output_mode == "cli" {
+
+        let mut max_len_by_index: HashMap<usize, usize> = HashMap::new();
+        for (_i, subvec) in table.iter().enumerate() {
+            for (j,_) in subvec.iter().enumerate() {
+                if !max_len_by_index.contains_key(&j) {
+                    max_len_by_index.insert(j, 0);
+                }
+                if subvec[j].len() > max_len_by_index[&j] {
+                    max_len_by_index.insert(j ,subvec[j].len());
+                }
+            }
+        }
+
+        output.push_str("\n");
+        output.push_str(&"-".repeat(max_len_by_index[&0]+max_len_by_index[&1]+max_len_by_index[&2]+max_len_by_index[&3]+21).to_string());
+        output.push_str("\n");
+        for vec in table {
+            output.push_str(&format!("| {0: <key1_width$} : {1: <val1_width$} | {2: <key2_width$} : {3: <val2_width$} |",
+                vec[0], vec[1], 
+                vec[2], vec[3], 
+                key1_width=max_len_by_index[&0]+2, val1_width=max_len_by_index[&1]+2,
+                key2_width=max_len_by_index[&2]+2, val2_width=max_len_by_index[&3]+2,
+            ));
+            output.push_str("\n");
+        }
+        output.push_str(&"-".repeat(max_len_by_index[&0]+max_len_by_index[&1]+max_len_by_index[&2]+max_len_by_index[&3]+21).to_string());
+        output.push_str("\n");
+
+        }
+
+    output
+
+}
+
 fn output_alert(output_mode: &str, code: usize, message: String) -> String{
     let mut output = String::new();
 
@@ -870,11 +908,16 @@ fn main() {
                     .help("Get all CPU infos and stats")
                     .required(false)
                 )
-                .arg(Arg::new("infos")
-                    .short('i')
-                    .long("infos")
+                .arg(Arg::new("summary-infos")
+                    .long("summary-infos")
                     .action(ArgAction::SetTrue)
-                    .help("Get CPU infos")
+                    .help("Get summary CPU infos")
+                    .required(false)
+                )
+                .arg(Arg::new("detailed-infos")
+                    .long("detailed-infos")
+                    .action(ArgAction::SetTrue)
+                    .help("Get detailed CPU infos")
                     .required(false)
                 )
                 .arg( Arg::new("times")
@@ -941,7 +984,7 @@ fn main() {
     // -- Default value --
     //
     let args_cpu_all: bool = *args.get_one::<bool>("all").unwrap_or(&false);
-    let args_cpu_infos: bool = *args.get_one::<bool>("infos").unwrap_or(&false);
+    let args_cpu_sum_infos: bool = *args.get_one::<bool>("summary-infos").unwrap_or(&false);
     let args_cpu_times: bool = *args.get_one::<bool>("times").unwrap_or(&false);
     let args_cpu_interrupts: bool = *args.get_one::<bool>("interrupts").unwrap_or(&false);
     let args_cpu_softirqs: bool = *args.get_one::<bool>("softirqs").unwrap_or(&false);
@@ -1102,8 +1145,8 @@ fn main() {
     }
     
     
-    // CPU INFOS
-    if args_cpu_all | args_cpu_infos {
+    // Summary Informations
+    if args_cpu_all | args_cpu_sum_infos {
         let mut system_infos_hm: LinkedHashMap<String, String> = LinkedHashMap::new();
         let system_infos = get_system_infos();
         system_infos_hm.insert(
@@ -1122,8 +1165,40 @@ fn main() {
         print!("{}", output_vertical_table(output_mode, false, system_infos_hm));
     }
 
+    // Detailed Informations
+    if args_cpu_all | args_cpu_sum_infos {
+        let mut detailed_cpu_infos: Vec<Vec<&str>> = Vec::new();
+        detailed_cpu_infos.push(vec!["Architecture", "x86_64",
+                                     "CPU op-mode(s)", "32-bit, 64-bit"]);
+        detailed_cpu_infos.push(vec!["Byte Order", "Little Endian",
+                                     "Stepping", "1"]);
+        detailed_cpu_infos.push(vec!["Vendor ID", "GenuineIntel",
+                                     "CPU family", "15"]);
+        detailed_cpu_infos.push(vec!["Model", "6",
+                                     "Model name", "Common KVM processor"]);
+        detailed_cpu_infos.push(vec!["Socket(s)", "1",
+                                     "CPU(s)", "2"]);
+        detailed_cpu_infos.push(vec!["Thread(s) per core", "1",
+                                     "Core(s) per socket", "2"]);
+        detailed_cpu_infos.push(vec!["CPU MHz", "3695.998",
+                                     "BogoMIPS", "7391.99"]);
+        detailed_cpu_infos.push(vec!["Hypervisor vendor", "KVM",
+                                     "Virtualization type", "full"]);
+        detailed_cpu_infos.push(vec!["NUMA node(s)", "4",
+                                     " ", " "]);
+        detailed_cpu_infos.push(vec!["BIOS Vendor ID", "QEMU",
+                                     "BIOS Model name", "pc-i440fx-6.1"]);
+        detailed_cpu_infos.push(vec!["L1d cache", "32K",
+                                     "L1i cache", "32K"]);
+        detailed_cpu_infos.push(vec!["L2 cache", "4096K",
+                                     "L3 cache", "16384K"]);
+
+        print!("{}", output_double_table(output_mode, detailed_cpu_infos));
+
+    }
+
     // PROCESS INFOS
-    if args_cpu_all | args_cpu_infos {
+    if args_cpu_all | args_cpu_sum_infos {
         let mut process_infos_hm: LinkedHashMap<String, String> = LinkedHashMap::new();
         process_infos_hm.insert(
             "Context switch/s".to_string(),
