@@ -10,6 +10,8 @@ use serde::{Serialize, Deserialize};
 use clap::{Command, Arg, ArgAction};
 use std::process::exit;
 use linked_hash_map::LinkedHashMap;
+use std::process::Command as CmdLinux;
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CpuSoftIrqs {
@@ -111,11 +113,28 @@ pub struct CpuStat {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SocketInfo {
     pub id: usize,
+    pub architecture: String,
+    pub op_mode: String,
+    pub byte_order: String,
+    pub stepping: String,
     pub vendor_id: String,
-    pub cpu_family: usize,
-    pub model: usize,
+    pub cpu_family: String,
+    pub model: String,
     pub model_name: String,
-    pub cpu_mhz: Option<f32>,
+    pub cpu_cores: usize, // 2.6.0 and newer
+    pub cpu_thread: usize, // 2.6.0 and newer
+    pub cpu_mhz: f32, // 2.2 and newer
+    pub bogomips: f32,
+    pub hypervisor_vendor: String,
+    pub virtualization_type: String,
+    pub numa_node: String,
+    pub bios_vendor_id: String,
+    pub bios_model_name: String,
+    pub l1d_cache: String,
+    pub l1i_cache: String,
+    pub l2_cache: String,
+    pub l3_cache: String,
+    pub flags: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -190,22 +209,85 @@ fn get_cpu_infos(cpu_status: &HashMap<usize, String>) -> (HashMap<usize, CpuInfo
     let mut list_socket: Vec<usize> = Vec::new();
     for (cpuid, cpustatus) in cpu_status {
         if cpustatus == "online" {
-            if !list_socket.contains(&cpuinfofile[cpuid].physical_id.unwrap()) { 
-                list_socket.push(cpuinfofile[cpuid].physical_id.unwrap()); 
-                socketinfos.insert(*cpuid, SocketInfo{
-                    id: cpuinfofile[cpuid].physical_id.unwrap(),
-                    vendor_id: cpuinfofile[cpuid].vendor_id.to_string(),
-                    cpu_family: cpuinfofile[cpuid].cpu_family,
-                    model: cpuinfofile[cpuid].model,
-                    model_name: cpuinfofile[cpuid].model_name.to_string(),
-                    cpu_mhz: cpuinfofile[cpuid].cpu_mhz,
+
+            let this_info = &cpuinfofile[cpuid];
+
+            // Get CPU architecture
+            let cmd_cpu_arch = CmdLinux::new("uname")
+                .arg("-m")
+                .output()
+                .expect("Failed to get cpu architecture");
+
+            // Add a new socketInfo if it has not already been added by the for loop
+            if !list_socket.contains(&this_info.physical_id.unwrap()) { 
+        
+
+                // | Hypervisor vendor    : KVM             | Virtualization type   : full                   |
+                // | NUMA node(s)         : 4               |                       :                        |
+                // | BIOS Vendor ID       : QEMU            | BIOS Model name       : pc-i440fx-6.1          |
+                // | L1d cache            : 32K             | L1i cache             : 32K                    |
+                // | L2 cache             : 4096K           | L3 cache              : 16384K                 |
+                // -------------------------------------------------------------------------------------------
+
+                
+                let architecture: String = String::from_utf8(cmd_cpu_arch.stdout).unwrap();
+                let op_mode: String = "N/A".to_string();
+                let byte_order: String = "N/A".to_string();
+                let stepping: String = this_info.stepping.to_string();
+                let vendor_id: String = this_info.vendor_id.to_string();
+                let cpu_family: String = this_info.cpu_family.to_string();
+                let model: String = this_info.model.to_string();
+                let model_name: String = this_info.model_name.to_string();
+                let cpu_cores: usize = this_info.cpu_cores.unwrap();
+                let cpu_thread: usize = this_info.siblings.unwrap();
+                let cpu_mhz: f32 = this_info.cpu_mhz.unwrap();
+                let bogomips: f32 = this_info.bogomips;
+                let hypervisor_vendor: String = "N/A".to_string();
+                let virtualization_type: String = "N/A".to_string();
+                let numa_node: String = "N/A".to_string();
+                let bios_vendor_id: String = "N/A".to_string();
+                let bios_model_name: String = "N/A".to_string();
+                let l1d_cache: String = "N/A".to_string();
+                let l1i_cache: String = "N/A".to_string();
+                let l2_cache: String = "N/A".to_string();
+                let l3_cache: String = "N/A".to_string();
+
+                let flags: Vec<String> = this_info.flags.split_whitespace().map(|s| s.to_owned()).collect();
+
+                list_socket.push(this_info.physical_id.unwrap()); 
+                socketinfos.insert(this_info.physical_id.unwrap(), SocketInfo{
+                    id: this_info.physical_id.unwrap(),
+                    architecture,
+                    op_mode,
+                    byte_order,
+                    stepping,
+                    vendor_id,
+                    cpu_family,
+                    model,
+                    model_name,
+                    cpu_cores,
+                    cpu_thread,
+                    cpu_mhz,
+                    bogomips,
+                    hypervisor_vendor,
+                    virtualization_type,
+                    numa_node,
+                    bios_vendor_id,
+                    bios_model_name,
+                    l1d_cache,
+                    l1i_cache,
+                    l2_cache,
+                    l3_cache,
+                    flags,
                 });
+                
             }
+
             cpuinfos.insert(*cpuid, CpuInfo{
                 id: *cpuid,
-                physical_id: Some(cpuinfofile[cpuid].physical_id.unwrap()),
+                physical_id: Some(this_info.physical_id.unwrap()),
                 online: (&cpustatus).to_string(),
-                all_infos: cpuinfofile[cpuid].clone(),
+                all_infos: this_info.clone(),
             });
         }else{
             cpuinfos.insert(*cpuid, CpuInfo{
@@ -1002,6 +1084,7 @@ fn main() {
 
     let mut first_start = true;
     let (getcpunow, ctxt, processes, procs_running, procs_blocked) = get_cpu_stats();
+    let system_infos = get_system_infos();
     let mut cpulastdata: Vec<CpuStat> = Vec::new();
     let mut lastchecktime: i64 = 0;
     let mut rate_ctxt: usize = 0;
@@ -1148,7 +1231,6 @@ fn main() {
     // Summary Informations
     if args_cpu_all | args_cpu_sum_infos {
         let mut system_infos_hm: LinkedHashMap<String, String> = LinkedHashMap::new();
-        let system_infos = get_system_infos();
         system_infos_hm.insert(
             "Socket(s)".to_string(),
             system_infos.cpu.socket_nbr_detected.to_string(),
@@ -1167,31 +1249,38 @@ fn main() {
 
     // Detailed Informations
     if args_cpu_all | args_cpu_sum_infos {
+        let socketnbr = system_infos.cpu.socket_nbr_detected.to_string();
+        let cpunbr = system_infos.cpu.cpu_nbr_online.to_string();
+        let cpupercore = system_infos.cpu.socket[&0].cpu_cores.to_string();
+        let threadpercore = system_infos.cpu.socket[&0].cpu_thread.to_string();
+        let cpu_mhz = system_infos.cpu.socket[&0].cpu_mhz.to_string();
+        let bogomips = system_infos.cpu.socket[&0].bogomips.to_string();
+
         let mut detailed_cpu_infos: Vec<Vec<&str>> = Vec::new();
-        detailed_cpu_infos.push(vec!["Architecture", "x86_64",
-                                     "CPU op-mode(s)", "32-bit, 64-bit"]);
-        detailed_cpu_infos.push(vec!["Byte Order", "Little Endian",
-                                     "Stepping", "1"]);
-        detailed_cpu_infos.push(vec!["Vendor ID", "GenuineIntel",
-                                     "CPU family", "15"]);
-        detailed_cpu_infos.push(vec!["Model", "6",
-                                     "Model name", "Common KVM processor"]);
-        detailed_cpu_infos.push(vec!["Socket(s)", "1",
-                                     "CPU(s)", "2"]);
-        detailed_cpu_infos.push(vec!["Thread(s) per core", "1",
-                                     "Core(s) per socket", "2"]);
-        detailed_cpu_infos.push(vec!["CPU MHz", "3695.998",
-                                     "BogoMIPS", "7391.99"]);
-        detailed_cpu_infos.push(vec!["Hypervisor vendor", "KVM",
-                                     "Virtualization type", "full"]);
-        detailed_cpu_infos.push(vec!["NUMA node(s)", "4",
+        detailed_cpu_infos.push(vec!["Architecture", system_infos.cpu.socket[&0].architecture.as_str().trim(),
+                                     "CPU op-mode(s)", system_infos.cpu.socket[&0].op_mode.as_str()]);
+        detailed_cpu_infos.push(vec!["Byte Order", system_infos.cpu.socket[&0].byte_order.as_str(),
+                                     "Stepping", system_infos.cpu.socket[&0].stepping.as_str()]);
+        detailed_cpu_infos.push(vec!["Vendor ID", system_infos.cpu.socket[&0].vendor_id.as_str(),
+                                     "CPU family", system_infos.cpu.socket[&0].cpu_family.as_str()]);
+        detailed_cpu_infos.push(vec!["Model", system_infos.cpu.socket[&0].model.as_str(),
+                                     "Model name", system_infos.cpu.socket[&0].model_name.as_str()]);
+        detailed_cpu_infos.push(vec!["Socket(s)", socketnbr.as_str(),
+                                     "CPU(s)", cpunbr.as_str()]);
+        detailed_cpu_infos.push(vec!["Core(s) per socket", cpupercore.as_str(),
+                                     "Thread(s) per core", threadpercore.as_str()]);
+        detailed_cpu_infos.push(vec!["CPU MHz", cpu_mhz.as_str(),
+                                     "BogoMIPS", bogomips.as_str()]);
+        detailed_cpu_infos.push(vec!["Hypervisor vendor", system_infos.cpu.socket[&0].hypervisor_vendor.as_str(),
+                                     "Virtualization type", system_infos.cpu.socket[&0].virtualization_type.as_str()]);
+        detailed_cpu_infos.push(vec!["NUMA node(s)", system_infos.cpu.socket[&0].numa_node.as_str(),
                                      " ", " "]);
-        detailed_cpu_infos.push(vec!["BIOS Vendor ID", "QEMU",
-                                     "BIOS Model name", "pc-i440fx-6.1"]);
-        detailed_cpu_infos.push(vec!["L1d cache", "32K",
-                                     "L1i cache", "32K"]);
-        detailed_cpu_infos.push(vec!["L2 cache", "4096K",
-                                     "L3 cache", "16384K"]);
+        detailed_cpu_infos.push(vec!["BIOS Vendor ID", system_infos.cpu.socket[&0].bios_vendor_id.as_str(),
+                                     "BIOS Model name", system_infos.cpu.socket[&0].bios_model_name.as_str()]);
+        detailed_cpu_infos.push(vec!["L1d cache", system_infos.cpu.socket[&0].l1d_cache.as_str(),
+                                     "L1i cache", system_infos.cpu.socket[&0].l1i_cache.as_str()]);
+        detailed_cpu_infos.push(vec!["L2 cache", system_infos.cpu.socket[&0].l2_cache.as_str(),
+                                     "L3 cache", system_infos.cpu.socket[&0].l3_cache.as_str()]);
 
         print!("{}", output_double_table(output_mode, detailed_cpu_infos));
 

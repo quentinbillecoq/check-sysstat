@@ -12,32 +12,30 @@ CPU
 - [x] Number of CPU(s) (Physical core / logical core (Thread))
 - [ ] Temperature (If available)
 
-### Detailed Informations
-- [ ] Architecture 
+### Detailed Informations (Works even if the processors are different)
+- [x] Architecture 
 - [ ] CPU op-mode(s)
 - [ ] Byte Order
+- [x] Stepping
+- [x] Vendor ID
+- [x] CPU family
+- [x] Model
+- [x] Model name
 - [x] Number of socket (Physical processor)
 - [x] Number of CPU(s) (Physical core / logical core (Thread))
-- [ ] Thread(s) per core
-- [ ] Core(s) per socket
-- [ ] NUMA node(s)
-- [ ] NUMA nodes Informations(s)
-- [ ] Vendor ID
-- [ ] BIOS Vendor ID
-- [ ] CPU family
-- [ ] Model
-- [ ] Model name
-- [ ] BIOS Model name
-- [ ] Stepping
-- [ ] CPU MHz
-- [ ] BogoMIPS
+- [x] Core(s) per socket
+- [x] Thread(s) per core
+- [x] CPU MHz
+- [x] BogoMIPS
 - [ ] Hypervisor vendor
 - [ ] Virtualization type
+- [ ] NUMA node(s)
+- [ ] BIOS Vendor ID
+- [ ] BIOS Model name
 - [ ] L1d cache
 - [ ] L1i cache
 - [ ] L2 cache
 - [ ] L3 cache
-- [ ] Flags
 
 ### Vulnerabilities
 - [ ] itlb_multihit
