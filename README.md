@@ -51,6 +51,9 @@ CPU
 ### Summary Numa Node Informations
 - [ ] Node list with associated CPU 
 
+### CPU Flags
+- [ ] Info flags
+
 ### Process Info
 - [x] Context switch
     - [ ] Total since startup
